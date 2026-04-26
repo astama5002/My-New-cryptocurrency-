@@ -4,19 +4,22 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
-model = tf.keras.models.load_model('BTC_LSTM_sentiment_model.keras')
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
+# ─────────────────────────────────────────────
 # 1. PAGE CONFIGURATION
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Crypto Analysis Dashboard | BTC-LSTM", 
-    page_icon="📈", 
+    page_title="Crypto Analysis Dashboard | BTC-LSTM",
+    page_icon="📈",
     layout="wide"
 )
 
-# 2. PROFESSIONAL HEADER & STUDENT DETAILS
+# ─────────────────────────────────────────────
+# 2. HEADER & SIDEBAR
+# ─────────────────────────────────────────────
 def render_header():
     with st.container():
         col1, col2 = st.columns([1, 4])
@@ -25,20 +28,19 @@ def render_header():
         with col2:
             st.title("Final Year Project: Cryptocurrency Price Prediction")
             st.markdown("### Deep Learning (LSTM) & Market Sentiment Analysis")
-    
+
     st.divider()
-    
+
     with st.sidebar:
         st.markdown("### 🎓 Student Information")
-        # GYARA NAN DA BAYANANKA
-        st.info(f"""
-        **Name:** ABDULLAHI SALISU LADO 
-        **Matric No:** CSA/2023/28034
+        st.info("""
+        **Name:** ABDULLAHI SALISU LADO  
+        **Matric No:** CSA/2023/28034  
         **Faculty:** Computing  
-        **Department:** Computer Science  and information technology 
-        **Supervisor:** Prof./Dr. Ailyu zakariyya
+        **Department:** Computer Science and Information Technology  
+        **Supervisor:** Prof./Dr. Ailyu Zakariyya
         """)
-        
+
         st.divider()
         st.markdown("### ⚙️ Model Parameters")
         years_scope = st.slider("Historical Data Scope (Years)", 5, 10, 8)
@@ -47,27 +49,34 @@ def render_header():
 
 years, future_days = render_header()
 
-# ---------------- Load Model ----------------
+# ─────────────────────────────────────────────
+# 3. LOAD MODEL
+# ─────────────────────────────────────────────
 @st.cache_resource
 def load_trained_model():
     try:
-        return load_model("BTC_LSTM_sentiment_model.keras")
+        model = tf.keras.models.load_model("BTC_LSTM_sentiment_model.keras")
+        return model
     except Exception as e:
         st.error(f"Error loading model: {e}")
         return None
 
 model = load_trained_model()
 
-# ---------------- Data Processing ----------------
+# ─────────────────────────────────────────────
+# 4. DATA FUNCTIONS
+# ─────────────────────────────────────────────
 def get_data(years_scope):
     start_date = f"{2026 - years_scope}-01-01"
     try:
-        df = yf.download("BTC-USD", start_date)
-        if df.empty: return None
+        df = yf.download("BTC-USD", start=start_date, progress=False)
+        if df.empty:
+            return None
         df = df.reset_index()[['Close']]
         df['Close'] = df['Close'].astype(float)
         return df
-    except:
+    except Exception as e:
+        st.error(f"Error fetching data: {e}")
         return None
 
 def process_sentiment(price_data):
@@ -83,12 +92,14 @@ def process_sentiment(price_data):
     except:
         return np.full(len(price_data), 0.5)
 
-# ---------------- Execution ----------------
+# ─────────────────────────────────────────────
+# 5. MAIN EXECUTION
+# ─────────────────────────────────────────────
 data = get_data(years)
 
 if data is not None and model is not None:
     fg_value = process_sentiment(data)
-    
+
     # Scaling
     dataset = np.column_stack((data['Close'].values.flatten(), fg_value))
     scaler = MinMaxScaler()
@@ -97,7 +108,7 @@ if data is not None and model is not None:
     base_days = 100
     x_test = []
     for i in range(base_days, len(scaled_data)):
-        x_test.append(scaled_data[i-base_days:i])
+        x_test.append(scaled_data[i - base_days:i])
     x_test = np.array(x_test)
 
     # Historical Prediction
@@ -107,49 +118,44 @@ if data is not None and model is not None:
         pred_price = scaler.inverse_transform(combined_pred)[:, 0]
         actual_price = data['Close'].values[base_days:]
 
-    # ---------------- DASHBOARD METRICS (FIXED) ----------------
-    # Muna amfani da .flatten() da float() don magance "TypeError"
-    rmse = np.sqrt(mean_squared_error(actual_price, pred_price))
-    mae = mean_absolute_error(actual_price, pred_price)
-    
-    current_price_scalar = float(actual_price.flatten()[-1])
-    rmse_scalar = float(np.array(rmse).flatten()[0])
-    mae_scalar = float(np.array(mae).flatten()[0])
+    # ── METRICS ──
+    rmse = float(np.sqrt(mean_squared_error(actual_price, pred_price)))
+    mae  = float(mean_absolute_error(actual_price, pred_price))
+    current_price = float(actual_price.flatten()[-1])
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Current BTC Price", f"${current_price_scalar:,.2f}")
-    m2.metric("Model RMSE (Error)", f"${rmse_scalar:,.2f}")
-    m3.metric("Model MAE (Error)", f"${mae_scalar:,.2f}")
+    m1.metric("Current BTC Price",   f"${current_price:,.2f}")
+    m2.metric("Model RMSE (Error)",  f"${rmse:,.2f}")
+    m3.metric("Model MAE (Error)",   f"${mae:,.2f}")
 
     st.divider()
 
-    # ---------------- VISUALIZATION ----------------
+    # ── FUTURE FORECAST ──
     st.subheader("📊 Market Analysis & Forecast Visualization")
-    
-    sns.set_style("whitegrid")
-    fig, ax1 = plt.subplots(figsize=(12, 5))
 
-    x_hist = np.arange(len(actual_price))
-    x_future = np.arange(len(actual_price), len(actual_price) + future_days)
-
-    # Future Forecasting
     last_sequence = scaled_data[-base_days:].copy()
     last_sentiment = float(last_sequence[-1, 1])
     future_preds_scaled = []
-    
-    for i in range(future_days):
+
+    for _ in range(future_days):
         input_seq = last_sequence.reshape(1, base_days, 2)
         p_scaled = model.predict(input_seq, verbose=0)
         next_step = np.array([p_scaled[0, 0], last_sentiment])
         future_preds_scaled.append(next_step)
         last_sequence = np.vstack([last_sequence[1:], next_step])
-    
+
     future_preds_scaled = np.array(future_preds_scaled)
     future_price = scaler.inverse_transform(future_preds_scaled)[:, 0]
-    
-    # Plotting
-    ax1.plot(x_hist, actual_price, label="Actual Price", color="#1f77b4")
-    ax1.plot(x_hist, pred_price, "--", label="LSTM Prediction", color="#d62728", alpha=0.7)
+
+    x_hist   = np.arange(len(actual_price))
+    x_future = np.arange(len(actual_price), len(actual_price) + future_days)
+
+    # ── PLOT ──
+    sns.set_style("whitegrid")
+    fig, ax1 = plt.subplots(figsize=(12, 5))
+
+    ax1.plot(x_hist,   actual_price, label="Actual Price",          color="#1f77b4")
+    ax1.plot(x_hist,   pred_price,   "--", label="LSTM Prediction", color="#d62728", alpha=0.7)
     ax1.plot(x_future, future_price, "-.", label=f"{future_days}-Day Forecast", color="#2ca02c", linewidth=2)
     ax1.set_ylabel("Price (USD)")
     ax1.legend(loc="upper left")
@@ -157,17 +163,18 @@ if data is not None and model is not None:
     ax2 = ax1.twinx()
     ax2.fill_between(np.arange(len(fg_value)), 0, fg_value, color="orange", alpha=0.1)
     ax2.set_ylabel("Sentiment Score")
-    
+
     st.pyplot(fig)
 
-    # ---------------- DATA TABLES ----------------
     st.divider()
+
+    # ── DATA TABLES ──
     c1, c2 = st.columns(2)
 
     with c1:
         st.subheader("📝 Accuracy (Last 10 Days)")
         history_df = pd.DataFrame({
-            "Actual": actual_price.flatten(),
+            "Actual":    actual_price.flatten(),
             "Predicted": pred_price.flatten()
         }).tail(10)
         st.table(history_df.style.format("${:,.2f}"))
@@ -175,16 +182,21 @@ if data is not None and model is not None:
     with c2:
         st.subheader(f"🔮 Next {future_days} Days Forecast")
         future_df = pd.DataFrame({
-            "Day": [f"Day {i+1}" for i in range(future_days)],
+            "Day":   [f"Day {i+1}" for i in range(future_days)],
             "Price": future_price.flatten()
         })
         st.dataframe(future_df.style.format({"Price": "${:,.2f}"}), use_container_width=True)
 
     st.markdown("### 💾 Export Research Data")
-    st.download_button("Download Forecast CSV", future_df.to_csv(index=False), "btc_forecast.csv", "text/csv")
+    st.download_button(
+        "Download Forecast CSV",
+        future_df.to_csv(index=False),
+        "btc_forecast.csv",
+        "text/csv"
+    )
 
 else:
-    st.error("Missing Data: Please ensure 'BTC_LSTM_sentiment_model.keras' and 'fear_greed.csv' are in the project folder.")
+    st.warning("⚠️ Please ensure **BTC_LSTM_sentiment_model.keras** and **fear_greed.csv** are uploaded to the GitHub repo.")
 
 st.markdown("---")
 st.caption("BSc Computer Science Thesis Evaluation - 2026 Academic Session")
